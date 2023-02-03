@@ -1,5 +1,5 @@
 # Couse respository
-This repository contains all the materials (RMarkdowns, HTMLs and Data-sets) provided during the 1st. edition of the "Introduction to Time Series Analysis in Limnology" course carried out in Vihella (Spain) during 5th – 8th April 2022.   
+This repository contains all the materials (RMarkdowns, HTMLs and Data-sets) provided during the 1st. edition of the J-AIL course "Introduction to Time Series Analysis in Limnology" carried out in Vihella (Spain) during 5th – 8th April 2022.   
 
 ## Course goal
 The main goal of the course is to provide students with a toolbox for pre-processing, visualizing and analyzing time series of different sizes, frequencies and typologies. Other possible specific objectives that will depend on the interests of students (to be assessed through a survey) include: advanced modeling, advanced visualization techniques, anomaly detection, state space models, and spectral analysis. 
