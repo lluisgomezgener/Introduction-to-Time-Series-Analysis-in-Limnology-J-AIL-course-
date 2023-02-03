@@ -1,0 +1,314 @@
+---
+title: "Time series of Environmental Sensors: anomalies"
+subtitle: "J-AIL course: Introduction to Time Series Analysis in Limnology"
+output: 
+    html_document:
+      toc: true
+      toc_float: true
+      theme: flatly
+      highlight: pygments
+      
+author: 
+  - Lluís Gómez Gener^[CREAF, gomez.gener87@gmail.com]
+    
+date: "31/3/2022"
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning=FALSE, message=FALSE)
+```
+
+# Introduction
+In short, low-frequency data sets, anomalies such as an "outlier" are easy to identify with just a time series plot or a simple analysis through a boxplot graph (or a Grubbs' test). However, this "manual tasks" gets more complicated when dealing with larger data sets, especially in the case of time series. 
+
+In this session we will learn how tow use the R package `anomalize` in order to automatically flag (or detect) anomalies in sensor time series. This session is part of the ppt. presentation "Time Series of Environmental Sensors: Dealing with anomalies missing data", in which you will find a more general context.
+
+
+## `anomalize` resources
+* Dancho, M. & Vaughan, D. *Anomalize github webpage* [Website](https://github.com/business-science/anomalize).
+* Dancho, M. & Vaughan, D. *Anomalize Quick Start Guide* [Website](https://cran.r-project.org/web/packages/anomalize/vignettes/anomalize_quick_start_guide.html).
+* Dancho, M. & Vaughan, D. *Anomalize Methods* [Website](https://cran.r-project.org/web/packages/anomalize/vignettes/anomalize_methods.html).
+* Dancho, M. & Vaughan, D. *Introduction To Anomalize - Youtube video* [Website](https://www.youtube.com/watch?v=Gk_HwjhlQJs).
+* Hochenbaum, J. & Vallis , O. *AnomalyDetection github webpage* [Website](https://github.com/twitter/AnomalyDetection).
+
+## Additional resources
+* Leigh et al., 2019 *A framework for automated anomaly detection in high frequency water-quality data from in situ sensors* [File](https://www.dropbox.com/s/4p1irewuign71u9/Leigh%20et%20al.%2C%202019.pdf?dl=0)
+
+* Dilini Talagala et al., 2019 *A Feature-Based Procedure for Detecting Technical Outliers inWater-Quality Data From In Situ Sensors* [File](https://www.dropbox.com/s/ak8jl01aiixavqc/Dilini%20Talagala%20et%20al.%2C%202019.pdf?dl=0)
+
+
+# Workflow for anomaly detection 
+## 1. Time Series Decomposition
+Anomaly detection is performed on remainders (or residuals) from a time series analysis that have had removed both:
+
+ - The "Trend" Components: Longer term growth that happens over many observations.
+
+-  The "Seasonal" Components: Cyclic pattern usually occurring on a daily cycle for minute or hour data or a weekly cycle for daily data.
+
+There are many ways that a time series can be deconstructed to produce residuals. We have tried many including using ARIMA, Machine Learning (Regression), Seasonal Decomposition, and so on. For anomaly detection, we have seen the best performance using seasonal decomposition.
+
+The `anomalize` package implements two techniques for seasonal decomposition:
+
+STL: Seasonal Decomposition of Time Series by Loess. The STL method uses the `stl()` function from the `stats` package. STL works very well in circumstances where a long term trend is present. The Loess algorithm typically does a very good job at detecting the trend. However, it circumstances when the seasonal component is more dominant than the trend, Twitter tends to perform better.
+
+Twitter: Seasonal Decomposition of Time Series by Median. The Twitter method is a similar decomposition method to that used in Twitter’s `AnomalyDetection` package. The Twitter method works identically to STL for removing the seasonal component. The main difference is in removing the trend, which is performed by removing the median of the data rather than fitting a smoother. The median works well when a long-term trend is less dominant that the short-term seasonal component. This is because the smoother tends to overfit the anomalies.
+
+Before starting, we need to load some packages:
+
+```{r packages}
+library(tidyverse)
+library(lubridate)
+library(naniar)
+library(visdat)
+library(anomalize)
+library(AnomalyDetection)
+library(imputeTS)
+```
+
+We first need to set up the working directory (i.e., folder where where R will find the files or/and store the outputs). This path MUST correspond to the path where your data is stored:
+
+```{r set working directory}
+setwd("C:/Users/lgomez/Dropbox/Teaching and research GENERAL/00_Teaching general/Introduction to time series analysis (JAIL)")
+getwd()
+```
+Now we are are ready to read the .csv files, for this we will use the function `read_csv()`, which is part of the core `tidyverse`.
+
+```{r read files}
+vau <- read_csv('00_course datasets/vau_all_2019.csv')
+
+```
+
+```{r glimpse}
+vau
+str(vau)
+```
+
+
+Let's subset the data frame to make the computations faster:
+
+```{r subset data.frame}
+vau_window<-vau %>% filter(between(date, 
+                    as.Date('2018-01-01'), as.Date('2018-05-30')))
+```
+
+In this session we will focus in stream water temperature. Let's have a look how this TS looks like: 
+
+```{r visualize}
+plot.ts(vau_window$CondTemp)
+```
+
+Decomposing our temperature TS following the Stl method:
+
+```{r decomposition.stl}
+vau_decomp  = vau_window %>%
+  time_decompose(CondTemp, 
+                 method    = "stl")
+```
+The arguments frequency = "auto" and trend = "auto" are the defaults.
+When “auto” is used, a `get_time_scale_template()` is used to determine logical frequency and trend spans based on the scale of the data. However, they can be manually adjusted adding this functions to the code.
+
+Let's have a look how the differents components of the TS look like:
+
+```{r visualize.decomposition}
+par(mfrow= c(4,1), mar = c(4,5,1,1))
+plot(vau_window$CondTemp)
+plot(vau_decomp$trend)
+plot(vau_decomp$season)
+plot(vau_decomp$remainder)
+```
+
+
+## 2. Locating Anomalies in the Remainders
+
+The `anomalize` package implements two methods to detect anomalies:
+
+IQR: Inner Quartile Range. It takes a distribution and uses the 25% and 75% inner quartile range to establish the distribution of the remainder. Limits are set by default to a factor of 3X above and below the inner quartile range, and any remainders beyond the limits are considered anomalies.
+
+Let's see an example of anomaly detection (IQR method) with all the possible arguments visible:
+
+```{r anomaly.iqr1}
+vau_window%>%
+  time_decompose(CondTemp, 
+                 method    = "stl",
+                 frequency = "1 hour",
+                 trend     = "1 month") %>%
+  anomalize(remainder, 
+            method = "iqr",
+            alpha = 0.035,
+            max_anoms = 0.1)%>%
+  time_recompose()%>%
+  plot_anomalies(time_recompose = T)+ ggtitle("alpha = 0.035")
+```
+
+The alpha parameter adjusts the 3X factor. By default, alpha = 0.05. An alpha = 0.025, results in a 6X factor, expanding the limits and making it more difficult for data to be an anomaly. Conversely, an alpha = 0.10 contracts the limits to a factor of 1.5X making it more easy for data to be an anomaly.
+
+The max_anoms parameter is used to control the maximum percentage of data that can be an anomaly. This is useful in cases where alpha is too difficult to tune, and you really want to focus in the most aggregious anomalies.
+
+Let’s play with this arguments (fine-tunning the method according to our needs). For instance, let's adjust alpha = 0.5 so we are less restrictive with the detection as we reduce the 3X factor a lot. 
+
+```{r anomaly.iqr2}
+vau_window%>%
+  time_decompose(CondTemp, 
+                 method    = "stl",
+                 frequency = "1 hour",
+                 trend     = "1 month") %>%
+  anomalize(remainder, 
+            method = "iqr",
+            alpha = 0.5,
+            max_anoms = 0.1)%>%
+  time_recompose()%>%
+  plot_anomalies(time_recompose = T)+ ggtitle("alpha = 0.5")
+```
+
+In contrast, with an alpha = 0.01, pretty much anything is an outlier. 
+
+```{r anomaly.iqr3}
+vau_window%>%
+  time_decompose(CondTemp, 
+                 method    = "stl",
+                 frequency = "1 hour",
+                 trend     = "1 month") %>%
+  anomalize(remainder, 
+            method = "iqr",
+            alpha = 0.01,
+            max_anoms = 0.1)%>%
+  time_recompose()%>%
+  plot_anomalies(time_recompose = T)+ ggtitle("alpha = 0.01")
+```
+
+
+## 3. Cleaning the TS 
+
+Every process done after detecting anomalies (e.g., regression or forecasting)will benefit by cleaning anomalous data prior to go for it. This is the perfect use case for integrating the clean_anomalies() function into your forecast workflow.
+
+```{r is.anomaly}
+is.anomaly.table<-vau_window%>%
+                  time_decompose(CondTemp, method    = "stl")%>%
+                  anomalize(remainder, method = "iqr", alpha = 0.5)%>%
+                  time_recompose()%>%
+                  clean_anomalies()  
+
+head(is.anomaly.table)
+```
+
+From the table we are interested in the columnn "anomaly" as it is the identifier that will use to perfrom the replacement for a "NA"
+
+```{r replacement}
+is.anomaly.table$observed <- replace(is.anomaly.table$observed, 
+                                     is.anomaly.table$anomaly== "Yes", NA)
+```
+
+Let's have a look if this new data frame contains "NA's" instead of anomalies patterns.The `ggplot_na_distribution` function is very useful to visually locate the gaps in new the anomaly-free TS.
+
+```{r vis.gap.diagnosis}
+ggplot_na_distribution(is.anomaly.table$observed)
+```
+
+The function `vis_miss`from the `naniar` library provides additional information on the % of NAs of the whole dataset as well as of the specific variables of the TS:
+
+```{r visualize NAs anomlay}
+vis_miss(is.anomaly.table)
+```
+
+# Exercise 1: Detection of anomalies in a long-term TS of snow cover in the Pyrenees.
+
+We first need to set up the working directory (i.e., folder where where R will find the files or/and store the outputs). This path MUST correspond to the path where your data is stored:
+
+```{r set working directory.exercise}
+setwd("C:/Users/lgomez/Dropbox/Teaching and research GENERAL/00_Teaching general/Introduction to time series analysis (JAIL)")
+getwd()
+```
+
+Let's now read the .csv file need it for the exercise, for this we will use the function `read_csv()`, which is part of the core `tidyverse`.
+
+```{r read files.exercise}
+snow_pyr <- read_csv('00_course datasets/snow_pyrenees_anomaly.csv')
+```
+
+In this exercise we will focus in the long-term TS of snow cover in the Pyrenees obtained by the Moderate Resolution Imaging Spectroradiometer (MODIS) instrument. For a more detailed description of the methods see:[Website](https://zenodo.org/record/162299#.YkgWtyjP02w). Additionally, the updated data is visible here: [Website](https://labo.obs-mip.fr/multitemp/pyrenees-snow-monitor/).
+
+In this TS we have intentionally create anomalous patterns and outilers.
+
+Let's have a look how this TS looks like: 
+
+```{r visualize.exercise}
+plot.ts(snow_pyr)
+plot(snow_pyr$date,snow_pyr$snow_area_km2)
+```
+
+## Question 1: Decompose the response variable of TS (snow_area_km2) and obtain the remainders component. 
+
+Decomposing our Snow area TS following the Stl method:
+
+```{r decomposition.stl.exercise}
+snow_decomp  = snow_pyr %>%
+  time_decompose(snow_area_km2, 
+                 method    = "stl",
+                 trend = "2 year")
+```
+Let's have a look how the differents components of the TS look like:
+
+```{r visualize.decomposition.exercise}
+par(mfrow= c(4,1), mar = c(4,5,1,1))
+plot(snow_decomp$observed)
+plot(snow_decomp$trend)
+plot(snow_decomp$season)
+plot(snow_decomp$remainder)
+```
+
+## Question 2. Locate Anomalies in the Remainders 
+
+Tips:
+- fine-tune the method to get the best out of it.
+
+
+```{r anomaly.iqr2.exercise}
+snow_pyr%>%
+  time_decompose(snow_area_km2, 
+                 method    = "stl",
+                 trend     = "1 year") %>%
+  anomalize(remainder, 
+            method = "gesd",
+            alpha = 1,
+            max_anoms = 0.1)%>%
+  time_recompose()%>%
+  plot_anomalies(time_recompose = T)+ ggtitle("alpha = 1")
+```
+
+
+## Question 3. Cleant the TS and make sure is ready for next steps in the data analysis workflow (e.g., analysis, imputation, forecasting)
+
+```{r is.anomaly.exercise}
+is.anomaly.table<-snow_pyr%>%
+  time_decompose(snow_area_km2, 
+                 method    = "stl",
+                 trend     = "1 year") %>%
+  anomalize(remainder, 
+            method = "iqr",
+            alpha = 1,
+            max_anoms = 0.1)%>%
+  time_recompose()%>%
+  clean_anomalies()  
+
+head(is.anomaly.table)
+```
+
+From the table we are interested in the columnn "anomaly" as it is the identifier that will use to perfrom the replacement for a "NA"
+
+```{r replacement.exercise}
+is.anomaly.table$observed <- replace(is.anomaly.table$observed, 
+                                     is.anomaly.table$anomaly== "Yes", NA)
+```
+
+Let's have a look if this new data frame contains "NA's" instead of anomalies patterns.The `ggplot_na_distribution` function is very useful to visually locate the gaps in new the anomaly-free TS.
+
+```{r vis.gap.diagnosis.exercise}
+ggplot_na_distribution(is.anomaly.table$observed)
+```
+
+The function `vis_miss`from the `naniar` library provides additional information on the % of NAs of the whole dataset as well as of the specific variables of the TS:
+
+```{r visualize NAs anomlay.exercise}
+vis_miss(is.anomaly.table)
+```

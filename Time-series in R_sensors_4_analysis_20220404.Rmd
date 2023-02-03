@@ -1,0 +1,246 @@
+---
+title: "Time series of Environmental Sensors: basic analysis"
+subtitle: "J-AIL course: Introduction to Time Series Analysis in Limnology"
+output: 
+    html_document:
+      toc: true
+      toc_float: true
+      theme: flatly
+      highlight: pygments
+      
+author: 
+  - Lluís Gómez Gener^[CREAF, gomez.gener87@gmail.com]
+    
+date: "31/3/2022"
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning=FALSE, message=FALSE)
+```
+
+# Introduction
+In this session we will learn how to use basic functions to analyze “environmental sensor” time series. 
+
+Before we start any time series analysis in R, a key decision is your choice of data representation (object class). This is especially critical in an object-oriented language such as R, because the choice affects more than how the data is stored; it also dictates which functions (methods) will be available for loading, processing, analyzing, printing, and plotting your data. When many people start using R they simply store time series data in vectors(as we mostly have done in the previous sessions). That seems natural. However, they quickly discover that none of the coolest analytics for time series analysis work with simple vectors. We’ve found when users switch to using an object class intended for time series data, the analysis gets easier, opening a gateway to valuable functions and analytics.
+
+Most of the functions used in this session (or R Markdown file) require the time series to be in the `ts` object class.
+
+
+# Resources
+
+* Dettling, M. *Time Series Analysis: ETH Course* [Website](https://www.dropbox.com/s/m4ryp8qcchoukg4/Time%20Series%20Analysis_ETH_COURSE.pdf?dl=0).
+
+* Coghlan, a. *A Little Book of R For Time Series* [Website](https://buildmedia.readthedocs.org/media/pdf/a-little-book-of-r-for-time-series/latest/a-little-book-of-r-for-time-series.pdf).
+
+# A. Workflow for sensor TS basic analysis 
+## 1. Importing and visualizing a TS class object 
+
+Before starting, we need to load some packages:
+
+```{r packages}
+library(tidyverse)
+```
+We also need to set up the working directory (i.e., folder where where R will find the files or/and store the outputs). This path MUST correspond to the path where your data is stored:
+
+```{r set working directory}
+setwd("C:/Users/lgomez/Dropbox/Teaching and research GENERAL/00_Teaching general/Introduction to time series analysis (JAIL)")
+getwd()
+```
+Now we are are ready to read the .csv files, for this we will use the function `read_csv()`, which is part of the core `tidyverse`.
+
+```{r read files}
+snow <- read_csv('00_course datasets/snow_pyrenees_2.csv')
+```
+
+Let's see how to transform our data frame to a ts object class. 
+
+```{r ts}
+snow.ts <- ts(snow, frequency=365, start=c(2001,1))
+head(snow.ts)
+tail(snow.ts)
+```
+
+Let's vsualize our TS:
+
+```{r ts.plot}
+plot(snow.ts)
+```
+
+## 2. Decomposing a TS 
+
+To estimate the trend component and seasonal component of a seasonal time series that can be described using an additive model, we can use the “decompose()” function in R. This function estimates the trend, seasonal, and irregular components of a time series that can be described using an additive model.
+
+```{r ts.decomposition}
+snow.ts.components <- decompose(snow.ts)
+head(snow.ts.components$seasonal)
+```
+
+We can plot the estimated trend, seasonal, and irregular components of the time series by using the “plot()” function, for example:
+
+```{r ts.decomposition.plot}
+plot(snow.ts.components)
+```
+
+## 3. Differencing
+
+### 3.1. Removing the trend by differencing 
+
+A simple approach for removing deterministic trends and/or seasonal effects from
+a time series is by taking differences (i.e.  a way to make a non-stationary time series stationar). A practical interpretation of taking
+differences is that by doing so, the changes in the data will be monitored, but no
+longer the series itself.
+
+We illustrate how differencing works by using a dataset that shows the number of mountain rescues in the Vall d'Aran for the period 1990-2010. We type in the
+values and plot the original series:
+
+```{r ts.differencing.table}
+rescues <- ts(c(100.0, 102.7, 104.2, 104.6, 106.7,
+106.9, 107.6, 109.9, 112.0, 114.3,
+117.4, 118.3, 120.9, 123.7, 124.1,
+124.6, 125.6, 127.9, 127.4, 130.2,
+131.3), start=1990, freq=1)
+
+plot(rescues)
+```
+
+
+There is a clear trend, which is close to linear, thus the simple approach should
+work well here. Taking first-order differences with lag 1 shows the yearly changes
+in the rescues. In R, the job is done with function diff().
+
+```{r ts.diff.plot}
+diff(rescues)
+plot.ts(diff(rescues))
+```
+
+
+### 3.2. Removing seasonal effects by differencing
+
+For time series with monthly measurements, seasonal effects are very common. Using an appropriate form of differencing, it is possible to remove these, as well as
+potential trends.
+
+We are illustrating seasonal differencing using the Mauna Loa atmospheric 2 CO
+concentration data. This is a time series with monthly records from January 1959
+to December 1997. It exhibits both a trend and a distinct seasonal pattern. We first load the data and do a time series plot:
+
+```{r data.co2}
+data(co2)
+plot(co2, main="Mauna Loa CO2 Concentrations")
+```
+
+Seasonal differencing is very conveniently available in R. We use function
+diff(), but have to set argument lag=.... For the Mauna Loa data with
+monthly measurements, the correct lag is 12. This results in the series shown below. Because we are comparing every record with the one from the
+previous year, the resulting series is 12 observations shorter than the original one. It is pretty obvious that some trend is remaining and thus, the result from seasonal differencing cannot be considered as stationary. As the seasonal effect is gone, we could try to add some first-order differencing at lag 1.
+
+```{r ts.diff.seasonal.plot.co2}
+sd.co2 <- diff(co2, lag=12)
+plot(sd.co2, main="Differenced Mauna Loa Data (p=12)")
+```
+
+The second differencing step indeed managems to produce a stationary series, as
+can be seen below.
+
+
+```{r ts.diff.seasonal.plot}
+sd.co2 <- diff(sd.co2, lag=12)
+plot(sd.co2, main="Differenced Mauna Loa Data (p=12,p=1)")
+```
+
+```{r ts.decomposition.1}
+sd.co2.components <- decompose(sd.co2)
+head(sd.co2.components$seasonal)
+```
+
+
+```{r ts.decomposition.plot.2}
+plot(sd.co2.components)
+```
+
+## 4. Smoothing
+### 4.1. Removing seasonal effects by smoothing
+
+Seasonal-Trend Decomposition with LOESS
+
+We now turn our attention to time series that show both trend and seasonal effect.
+The goal is to specify a filtering approach that allows trend estimation for periodic data. 
+
+```{r loess}
+fit <- loess(co2~time(co2))
+trend.est <- predict(fit)
+plot(as.numeric(co2), type="l",main="Mauna Loa CO2 Concentrations")
+lines(trend.est, col="red")
+```
+
+## 5. Autocorrelation
+
+An important feature of time series is their (potential) serial correlation. The Autocorrelation function (ACF) measures the correlation between observations at different distances apart. Or, in other words, defines how data points in a time series are related, on average, to the preceding data points (or the self-similarity of the signal over different delay times).
+
+
+### 5.1. Lagged Scatterplot
+An appealing idea for analyzing the correlation among consecutive observations in
+the above series is to produce a scatterplot of (x1,xt+1) for all t=1,....,n-1. There is a designated function `lag.plot()` in R. The result is as follows:
+
+```{r lag.plot}
+lag.plot(snow.ts, do.lines=FALSE, pch=20)
+title("Lagged Scatterplot, k=1")
+```
+
+The association seems linear and is positive. The Pearson correlation is high.  How to interpret this value from a practical viewpoint? Here in this case, x(t-1) explains most of the variability observed in x(t).
+
+### 5.2. Correlogram
+
+Now we will estimate the autocorrelation function (ACF) for any lag k .
+Here, we introduce the correlogram, the standard means of visualization for the
+ACF. We will then also study the properties of the ACF estimator. We employ R
+and obtain:
+
+```{r correlogram.plot}
+acf(snow.ts, ylim=c(-1,1))
+```
+
+```{r correlogram.plot.2}
+acf(sd.co2, ylim=c(-1,1))
+```
+
+```{r correlogram.plot.3}
+data(nottem)
+acf(nottem, ylim=c(-1,1))
+```
+
+#B. Advanced analysis tools
+
+## 1. Change points and structural breaks
+
+* Kotzé, K. *Tutorial: Change points and structural breaks* [Website](https://kevin-kotze.gitlab.io/tsm/ts-2-tut/).
+
+## 2. Spectral analysis
+### 2.1. Wavelet analysis
+Cazellas, B. et al., 2008 *Wavelet analysis of ecological time series* [Website](https://link.springer.com/article/10.1007/s00442-008-0993-2).
+
+Rosch, A. 2018 *WaveletComp 1.1: A guided tour through the R package* [Website](http://www.hs-stat.com/projects/WaveletComp/WaveletComp_guided_tour.pdf)
+
+### 2.2. Wavelet coherence analysis
+
+Gouhier, T. et al., 2021 *Package ‘biwavelet’* [Website](https://cran.r-project.org/web/packages/biwavelet/biwavelet.pdf)
+
+## 3. Stationary time series models
+
+* Dettling, M. *Time Series Analysis: ETH Course* [Website](https://www.dropbox.com/s/m4ryp8qcchoukg4/Time%20Series%20Analysis_ETH_COURSE.pdf?dl=0).
+
+## 4. Time series regression
+
+* Dettling, M. *Time Series Analysis: ETH Course* [Website](https://www.dropbox.com/s/m4ryp8qcchoukg4/Time%20Series%20Analysis_ETH_COURSE.pdf?dl=0).
+
+## 5. Time series forecasting
+
+* Dettling, M. *Time Series Analysis: ETH Course* [Website](https://www.dropbox.com/s/m4ryp8qcchoukg4/Time%20Series%20Analysis_ETH_COURSE.pdf?dl=0).
+
+## 6. Multivariate time series analysis
+
+* Dettling, M. *Time Series Analysis: ETH Course* [Website](https://www.dropbox.com/s/m4ryp8qcchoukg4/Time%20Series%20Analysis_ETH_COURSE.pdf?dl=0).
+
+## 7. State space models
+
+* Dettling, M. *Time Series Analysis: ETH Course* [Website](https://www.dropbox.com/s/m4ryp8qcchoukg4/Time%20Series%20Analysis_ETH_COURSE.pdf?dl=0).

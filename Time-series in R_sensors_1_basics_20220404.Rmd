@@ -1,0 +1,541 @@
+---
+title: "Time series of Environmental Sensors: the basics"
+subtitle: "J-AIL course: Introduction to Time Series Analysis in Limnology"
+output: 
+    html_document:
+      toc: true
+      toc_float: true
+      theme: flatly
+      highlight: pygments
+      
+author: 
+  - Lluís Gómez Gener^[CREAF, gomez.gener87@gmail.com]
+    
+date: "31/3/2022"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning=FALSE, message=FALSE)
+```
+
+# Introduction
+
+In this session we will introduce some basic techniques commonly used to import, explore, and handle row sensor TS. This session will be divided in different subsections:
+
+-   Data import\
+-   Dates and times
+-   Data exploration
+-   Data visualization
+
+# Resources
+
+## Import, dates and times and basic exploration
+
+-   On-line course "R for Data Science" *Data import* [Website](https://r4ds.had.co.nz/data-import.html).
+
+-   On-line course "R for Data Science" *Dates and times* [Website](https://r4ds.had.co.nz/dates-and-times.html).
+
+-   DataCamp Online Course *Time Series Analysis in R* [Website](https://app.datacamp.com/learn/courses/time-series-analysis-in-r).
+
+## Advanced analyasis
+
+-   You can find a quite extensive tutorial at *Using R for Time Series Analysis* [Website](https://a-little-book-of-r-for-time-series.readthedocs.io/en/latest/src/timeseries.html)
+
+-   You can find a list of R packages for analysing time series data on the *CRAN Time Series Task View webpage* [Website](https://cran.r-project.org/web/views/TimeSeries.html)
+
+And two books:
+
+-   Box et al. 2016 *Time Series Analysis: forecasting and control. 5th Edition* [Website](https://www.wiley.com/en-ie/Time+Series+Analysis:+Forecasting+and+Control,+5th+Edition-p-9781118675021).
+
+-   Shumway H. and Stoffer D. et al. 2011 *Time Series Analysis and Its Applications With R Examples. 3rd Edition* [Website](https://link.springer.com/book/10.1007/978-3-319-52452-8).
+
+## Cheat sheets
+
+-   *lubridate Cheat Sheet* [Website](https://rawgit.com/rstudio/cheatsheets/main/lubridate.pdf).
+
+-   *dplyr Cheat Sheet* [Website](https://gauss.inf.um.es/tabular/www/data-transformation.pdf).
+
+-   *ggplot2 Cheat Sheet* [Website](https://www.maths.usyd.edu.au/u/UG/SM/STAT3022/r/current/Misc/data-visualization-2.1.pdf).
+
+# 1. Data import (dealing with Dates and Times)
+
+Before starting, we need to load some packages:
+
+```{r packages}
+library(tidyverse)
+library(lubridate)
+library(dplyr)
+library(ggplot2)
+library(imputeTS)
+library(miceRanger)
+library(naniar)
+library(visdat)
+library(akima)
+library(colorRamps)
+```
+
+We also need to set up the working directory (i.e., folder where where R will find the files or/and store the outputs). This path MUST correspond to the path where your data is stored:
+
+```{r set working directory}
+setwd("C:/Users/lgomez/Dropbox/Teaching and research GENERAL/00_Teaching general/Introduction to time series analysis (JAIL)")
+getwd()
+```
+
+Now we are ready to read an external TS file. However, as most sensor data is recorded below the "day" frequency (we normally define HF as data recorded at a frequency equal or lower than 1 hour) we need to make sure that R understands what are the Date and Time (and Date&Time) variables of our TS.
+
+VERY IMPORTANT: How the "date and time" in your input TS file (normally a csv. created or edited with Ms. Excel) should look like?
+
+2016-01-01 00:00:00 yyyy-mm-dd hh:mm:ss
+
+if in Ms. Excel you only independent columns for "date" and "time" you can use the following code to merge them into the "datetime" format:
+
+`=CONCATENAR(TEXTO(A2,"aaaa-mm-dd")," ",TEXTO(B2,"hh:mm:ss"))`
+
+Let's import an external TS and have a look how the Date and Time variables look like. For this we will use the function `read_csv()`, which is part of the core `tidyverse`.
+
+```{r read files}
+vau <- read_csv('00_course datasets/vau_all_2019.csv')
+```
+
+A date-time object is basically a point on the timeline, stored as the number of seconds since 1970-01-01 00:00:00 UTC
+
+```{r as.numeric}
+head(as.numeric(vau$datetime))
+```
+
+```{r as.datetime}
+as_datetime(1451948400)
+```
+
+BUT what if the initial data-time is in a "weird" format (WE NEED TO CONVERT as the goal is yyyy-mm-dd hh:mm:ss").
+
+All the conversion examples are at: [Website](https://lubridate.tidyverse.org/)
+
+See few examples with common cases below:
+
+```{r conversions.datetime}
+ymd_hms("2017-11-28T14:02:00")
+mdy_hms("11/28/2017 14:02:00")
+```
+
+```{r conversions.date}
+mdy("July 4th, 2000")
+dmy("4th of July '99")
+```
+
+But how to merge independent "date" and "time" columns in R?
+
+```{r merge.data.time}
+vau$datetime_1 = ymd_hms(paste(vau$date, vau$time))
+head(vau$datetime)
+head(vau$datetime_1)
+```
+
+To drop off a complete column:
+
+```{r drop.off}
+vau$datetime_1<-NULL
+```
+
+# 2. Data exploration (of unprocessed TS's)
+
+The dataset as a whole:
+
+```{r summary.ALL}
+size_vau_all<-vau %>% 
+  summarise(
+    no.na=sum(!is.na(.)),
+    na=sum(is.na(.)),
+    long=sum(no.na,na))
+```
+
+By numerical variables (numerical class):
+
+```{r summary.vairable.at}
+size_vau_at <-vau %>% 
+                  summarise_at(c("PAR1Temp", "PAR1Lux"), 
+                  funs(mean, 
+                       median,
+                       no.na=sum(!is.na(.)),
+                       na=sum(is.na(.))),
+                  na.rm=TRUE)
+```
+
+```{r summary.vairable.if}
+size_vau_if <-vau %>% 
+                  summarise_if(is.numeric,  
+                  funs(mean, 
+                       median,
+                       no.na=sum(!is.na(.)),
+                       na=sum(is.na(.))),
+                  na.rm=TRUE)
+```
+
+```{r summary.vairable.all}
+size_vau_all <-vau %>% 
+                   summarise_all(
+                   funs(mean, 
+                        median,
+                        no.na=sum(!is.na(.)),
+                        na=sum(is.na(.))),
+                   na.rm=TRUE)
+```
+
+Nice functions by the naniar and visdat packages to inspect NAs:
+
+```{r prop.miss}
+prop_miss(vau$PAR2Temp)
+```
+
+```{r any.na}
+any_na(vau$PAR2Temp)
+```
+
+```{r summary.NA.ALL}
+vau_summary<- miss_var_summary(vau)
+```
+
+```{r summary.NA.by vairbale}
+statsNA(vau$PAR1Lux)
+```
+
+To visualize the NA structure of the TS dataset (with more detail in the data imputation session):
+
+First, let's subset the data frame:
+
+```{r subset}
+vau_window<-vau %>% filter(between(date,                                   as.Date('2017-01-01'),as.Date('2017-05-08')))
+```
+
+```{r vis.mis}
+vis_miss(vau_window)
+```
+
+```{r gg_miss_var}
+gg_miss_var(vau_window)
+```
+
+Vis_miss produces a "heatmap" of the missingness - like as if the plot corresponded to the dataset as a giant spreadsheet, with values colored black for missing, and gray for present.
+
+# 3. Data visualitzation
+
+## 3.1. Time series plots using Base R
+
+First we will start by making a multi-panel plot (2 plots one above the other one) with two distinct variables (only using the main y-axis):
+
+```{r plot.one.variable.r}
+par(mfrow= c(2,1), mar = c(3,4.5,0.5,0.5))
+plot(vau$datetime,vau$DOTemp,cex=.25,cex.axis=0.9,type="n",xlab="",ylab="Temp (ºC)", main="")
+lines(vau$datetime,vau$DOTemp,cex=0.75,lwd=1,lty=1,pch=21, type="o", col="Indian Red 3", bg="Indian Red 3") 
+plot(vau$datetime,vau$discharge_1,cex=.25,cex.axis=0.9,type="n",xlab="",ylab=expression(paste(Q~(L~s^-1))), main="")
+lines(vau$datetime,vau$discharge_1,cex=0.75,lwd=1,lty=1,pch=21, type="o", col="Steel Blue", bg="Steel Blue") 
+```
+
+Now we will make a multi-line plot (in one single panel) for one common variable but for different study sites.
+
+```{r plot.multiple.sites.r}
+fed_all <- read_csv('00_course datasets/fed_all_2019.csv')
+par(mfrow= c(1,1), mar = c(3,4.5,0.5,0.5))
+plot(vau$datetime,vau$DOTemp,cex=.25,cex.axis=0.9,type="n",xlab="",ylab="Temp (ºC)", main="")
+lines(vau$datetime,vau$DOTemp,cex=0.75,lwd=1,lty=1,pch=21, type="l", col="black") 
+adjustcolor( "red", alpha.f = 0.5)
+lines(fed_all$datetime,fed_all$DOTemp,cex=0.75,lwd=1,lty=1,pch=21, type="l", col="#FF000080")
+
+# Add a legend
+legend(1451607000 ,24, 
+       legend = c("Site 1","Site 2"),
+       lty=c(1,1),
+       lwd=c(2,2),
+       col = c("Black","#FF000080"),
+       bty = "n")
+
+```
+
+Using the secondary y-axis:
+
+```{r plot.multiple.variables.r}
+par(mfrow= c(1,1), mar = c(3,4.5,0.5,4.5))
+plot(vau$datetime,vau$DOTemp,cex=.25,cex.axis=0.9,type="n",xlab="",ylab="Temp (ºC)", main="", las=1)
+lines(vau$datetime,vau$DOTemp,cex=0.75,lwd=1,lty=1,pch=21, type="l", col="black") 
+
+# Add a legend
+legend(1451607000 ,24, 
+       legend = c("Temp","Cond"),
+       lty=c(1,1),
+       lwd=c(2,2),
+       col = c("Black","green"),
+       bty = "n")
+
+par(new = TRUE) # Overimpose anew plot
+
+# Add new plot
+plot(vau$datetime,vau$ConduScm, lwd=1,lty=1,pch=21, type="l", col="green", axes = FALSE, xlab = "", ylab = "")
+axis(4, ylim=c(0,1),col="black",las=1,cex.axis=0.9)  ## las=1 makes horizontal labels
+mtext(expression(paste(Conductivity~(uS~cm^-1))), side = 4, line = 3.5) # Add second axis label             
+
+```
+
+## 3.2. Time series plots using ggplot2
+
+```{r plot.one.variable.ggplot}
+ggplot(vau, aes(x=datetime, y=DOTemp)) + 
+  geom_line()+
+  theme_classic()+
+  scale_x_datetime(date_labels = "%Y") #"%Y/%m/%d"
+```
+
+Select specific window of time
+
+```{r plot.one.variable.ggplot.year}
+datelimits <- as.POSIXct(c("2017-06-01", "2017-12-31"))
+
+vau %>% filter(datetime > datelimits[1] & datetime < datelimits[2]) %>% 
+  ggplot(aes(datetime, DOTemp))+
+  geom_line()+
+  theme_classic()+
+  scale_x_datetime(date_labels = "%Y-%m-%d")
+```
+
+```{r plot.one.variable.ggplot.month}
+datelimits <- as.POSIXct(c("2017-01-01", "2017-02-01"))
+
+vau %>% filter(datetime > datelimits[1] & datetime < datelimits[2]) %>% 
+  ggplot(aes(datetime, DOTemp))+
+  geom_line()+
+  theme_classic()+
+  scale_x_datetime(date_labels = "%Y-%m-%d %H:%M" )
+```
+
+```{r plot.one.variable.ggplot.day}
+datelimits <- as.POSIXct(c("2017-01-01", "2017-01-02"))
+
+vau %>% filter(datetime > datelimits[1] & datetime < datelimits[2]) %>% 
+  ggplot(aes(datetime, DOTemp))+
+  geom_line()+
+  theme_classic()+
+  scale_x_datetime(date_labels = "%Y-%m-%d %H:%M" )
+```
+
+Another option to subset time series:
+
+```{r subset.2}
+date1 <- as.Date("2017-08-01")
+date2 <- as.Date("2017-08-05")
+int <- interval(date1, date2)
+
+vau_window<-vau[vau$date %within% int,]
+```
+
+## 3.3. Time agreggations
+
+```{r aggregtation.daily}
+datelimits <- as.POSIXct(c("2017-01-01", "2019-05-31"))
+dat_limits<-vau %>% filter(datetime > datelimits[1] & datetime < datelimits[2])
+
+dat_temp_daily<-dat_limits %>%
+  group_by(date = cut(datetime, breaks="1 day")) %>%
+  summarize(
+    date = first(as.Date(datetime)),
+    doy=yday(date),
+    year=year(date),
+    temp_daily = median(DOTemp,na.rm = TRUE))
+
+plot(dat_temp_daily$date,dat_temp_daily$temp_daily, type="o")
+```
+
+```{r aggregtation.monthly}
+dat_temp_monthly<-dat_limits %>%
+  group_by(date = cut(datetime, breaks="1 month")) %>%
+  summarize(
+    date = first(as.Date(datetime)),
+    doy=yday(date),
+    year=year(date),
+    temp_monthly = median(DOTemp,na.rm = TRUE))
+
+plot(dat_temp_monthly$date,dat_temp_monthly$temp_monthly, type="o")
+```
+
+## 3.4. Heatmaps
+
+### Example 1
+
+Data preparation:
+
+```{r heatmap.preparation.vertical}
+a <- interp(x=dat_temp_daily$year, y=dat_temp_daily$doy, z=dat_temp_daily$temp_daily, duplicate = "mean",       xo=seq(min(dat_temp_daily$year),max(dat_temp_daily$year),by=1), 
+yo=seq(min(dat_temp_daily$doy),max(dat_temp_daily$doy),by=1))
+```
+
+Production of the heatmap:
+
+```{r heatmap.production.vertical}
+
+# Color palettes:
+cols<-matlab.like(250) 
+pal <- colorRampPalette(cols)
+
+par(mfrow= c(1,1), mar = c(4,5,1,1))
+par(oma = c(0, 0, 0, 0), mar = c(4, 4, 0.5, 0))
+
+filled.contour(a,
+               axes=TRUE,
+               nlevels = 25, #50 best
+               zlim = c(0,6),
+               color.palette=pal, 
+               ylab = "Day of the year", xlab = "Year",
+               frame.plot = TRUE,
+               xlim=c(2016,2019),
+               ylim=c(min(dat_temp_daily$doy),max(dat_temp_daily$doy)))
+```
+
+### Example 2
+
+Read an external dataset:
+
+```{r read files.3}
+dat <- read_csv(paste0("00_course datasets/data_ebro/by_site/cinca.monzon",".csv"))
+```
+
+Subset the whole dataset by variable:
+
+```{r by.variable}
+dat_temp<-subset(dat,dat$variable=="wtemp.c")
+dat_pH<-subset(dat,dat$variable=="pH")
+dat_cond<-subset(dat,dat$variable=="cond25.uscm")
+dat_do<-subset(dat,dat$variable=="do.mgl")
+dat_nh4<-subset(dat,dat$variable=="nh4.mgL")
+dat_level<-subset(dat,dat$variable=="level.saih.cm")
+```
+
+Select window of time (TIME WINDOW)
+
+```{r window}
+datelimits <- as.POSIXct(c("1995-01-01", "2020-08-21"))
+```
+
+Create specific range based on time window
+
+```{r brakes}
+mybreaks<-seq.Date(as.Date("1995-01-01"), as.Date("2020-08-21"), by="5 year")
+mybreaks<-as.POSIXct(mybreaks, tz="GMT")
+
+dat_temp %>% filter(date.time > datelimits[1] & date.time < datelimits[2]) %>% 
+  ggplot(aes(date.time, m_valor))+
+  geom_line()+
+  facet_wrap(~variable, scales = "free_y", ncol=1)+
+  #geom_vline(xintercept = as.POSIXct("2020-01-01"), col="red")+
+  theme_classic()+
+  scale_x_datetime(breaks=mybreaks,date_labels = "%Y")
+  
+```
+
+Aggregation of data (temperature time series)
+
+```{r aggregate.temp}
+dat_temp_limits<-dat_temp %>% filter(date.time > datelimits[1] & date.time < datelimits[2])
+
+dat_temp_daily<-dat_temp_limits %>%
+  group_by(date.time = cut(date.time, breaks="1 day")) %>%
+  summarize(
+    date = first(as.Date(date.time)),
+    doy=yday(date),
+    year=year(date),
+    variable = first(variable),
+    temp_daily = median(m_valor,na.rm = TRUE))
+
+plot(dat_temp_daily$temp_daily)
+```
+
+```{r aggregate.level}
+dat_level_limits<-dat_level %>% filter(date.time > datelimits[1] & date.time < datelimits[2])
+
+dat_level_daily<-dat_level_limits %>%
+  group_by(date.time = cut(date.time, breaks="1 day")) %>%
+  summarize(
+    date = first(as.Date(date.time)),
+    doy=yday(date),
+    year=year(date),
+    variable = first(variable),
+    level_daily = median(m_valor,na.rm = TRUE))
+
+plot(dat_level_daily$level_daily)
+```
+
+Data preparation:
+
+```{r heatmap.preparation.temp.horitzontal}
+a <- interp(y=dat_temp_daily$year, x=dat_temp_daily$doy, z=dat_temp_daily$temp_daily, duplicate = "mean",
+yo=seq(min(dat_temp_daily$year),max(dat_temp_daily$year),by=1), 
+xo=seq(min(dat_temp_daily$doy),max(dat_temp_daily$doy),by=1))
+```
+
+Production of the heatmap:
+
+```{r heatmap.production.temp.horitzontal}
+
+# Color palettes:
+cols<-matlab.like(250) 
+pal <- colorRampPalette(cols)
+
+par(mfrow= c(1,1), mar = c(4,5,1,1))
+par(oma = c(0, 0, 0, 0), mar = c(4, 4, 0.5, 0))
+
+filled.contour(a,
+               axes=TRUE,
+               nlevels = 50, #50 best
+               zlim = c(0,25),
+               color.palette=pal, 
+               xlab = "Day of the year", ylab = "Year",
+               plot.axes={
+                 axis(1,cex.axis=0.9)
+                 axis(2,cex.axis=0.9)},
+               cex.lab=1,
+               frame.plot = TRUE,
+               ylim=c(2000,max(dat_temp_daily$year)),
+               xlim=c(min(dat_temp_daily$doy),max(dat_temp_daily$doy)))
+
+```
+
+```{r heatmap.preparation.level.horitzontal}
+a <- interp(y=dat_level_daily$year, x=dat_level_daily$doy, z=dat_level_daily$level_daily, duplicate = "mean",
+yo=seq(min(dat_level_daily$year),max(dat_level_daily$year),by=1), xo=seq(min(dat_level_daily$doy),max(dat_level_daily$doy),by=1))
+```
+
+```{r heatmap.production.level.horitzontal}
+
+# Color palettes:
+cols<-matlab.like(250) 
+pal <- colorRampPalette(cols)
+
+par(mfrow= c(1,1), mar = c(4,5,1,1))
+par(oma = c(0, 0, 0, 0), mar = c(4, 4, 0.5, 0))
+
+filled.contour(a,
+               axes=TRUE,
+               nlevels = 50, #50 best
+               zlim = c(0,450),
+               color.palette=pal, 
+               xlab = "Day of the year", ylab = "Year",
+               plot.axes={
+                 axis(1,cex.axis=0.9)
+                 axis(2,cex.axis=0.9)},
+               cex.lab=1,
+               frame.plot = TRUE,
+               ylim=c(2000,max(dat_level_daily$year)),
+               xlim=c(min(dat_level_daily$doy),max(dat_level_daily$doy)))
+
+```
+
+## 3.5. Advanced visualitzation tools
+
+*Streamflow Joyplot Tool* [Website](https://github.com/codeswitching/Streamflow-Joyplot-Tool).
+
+*Streamflow Joyplot Tool (example 3D)* [Website](https://github.com/codeswitching/Streamflow-Joyplot-Tool/blob/master/plots/3d%20flow%20Green%20raytraced.png).
+
+*Spiral plots with Spiralize Package* [Website](https://jokergoo.github.io/spiralize_vignettes/spiralize.html).
+
+*Spiral plots (example NASA)* [Website](https://svs.gsfc.nasa.gov/4975).
+
+## 3.6. Visualization of sensor time series for the general public
+
+*VizLab USGS* [Website](https://labs.waterdata.usgs.gov/visualizations/vizlab-home/index.html#/).
