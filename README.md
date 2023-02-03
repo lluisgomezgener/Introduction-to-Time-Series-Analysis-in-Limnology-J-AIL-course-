@@ -6,6 +6,7 @@ The main goal of the course is to provide students with a toolbox for pre-proces
 
 ## Course contents
 • Introduction to time series analysis (T)
+
 • Time-series in R (Part 1): Pre-processing and importing (T and P)
 • Time-series in R (Part 2): Visualization (T and P)
 • Time-series in R (Part 3): Descriptive analysis (T and P)
